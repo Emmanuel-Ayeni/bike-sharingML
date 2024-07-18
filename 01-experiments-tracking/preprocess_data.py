@@ -16,19 +16,27 @@ def read_dataframe(filename: str):
     print(f"First few rows of the DataFrame:")
     print(df.head())
 
-    # Check if the required columns exist
-    required_columns = ['started_at', 'ended_at']
-    missing_columns = [col for col in required_columns if col not in df.columns]
+    # Check if the required columns exist, with possible alternative names
+    column_mapping = {
+        'started_at': ['started_at', 'start_time', 'start_date'],
+        'ended_at': ['ended_at', 'end_time', 'end_date']
+    }
 
-    if missing_columns:
-        raise ValueError(f"Missing required columns: {missing_columns}")
-    
+    for required_col, alternatives in column_mapping.items():
+        if required_col not in df.columns:
+            for alt_col in alternatives:
+                if alt_col in df.columns:
+                    df[required_col] = df[alt_col]
+                    break
+            else:
+                raise ValueError(f"Missing required column '{required_col}' and no suitable alternative found")
+
     # If columns exist, proceed with duration calculation
-    df['ride_duration'] = (df['ended_at'] - df['started_at']).dt.total_seconds() / 60
-    df = df[(df.duration >= 1) & (df.duration <= 180)]  # Filter rides between 1 and 180 minutes
+    df['ride_duration'] = (pd.to_datetime(df['ended_at']) - pd.to_datetime(df['started_at'])).dt.total_seconds() / 60
+    df = df[(df.ride_duration >= 1) & (df.ride_duration <= 180)]  # Filter rides between 1 and 180 minutes
     
     categorical = ['start_station_name', 'end_station_name', 'member_casual']
-    df[categorical] = df[categorical].astype(str)
+    df[categorical] = df[categorical].fillna('Unknown').astype(str)
     
     return df
 

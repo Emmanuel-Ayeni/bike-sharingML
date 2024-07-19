@@ -65,7 +65,7 @@ def process_data(df: pd.DataFrame) -> pd.DataFrame:
     rideable_type_col = next((col for col in df.columns if 'rideable' in col.lower() or 'bike' in col.lower()), None)
     
     # Prepare columns to keep
-    columns_to_keep = ['datetime', 'year', 'month', 'day', 'hour', 'dayofweek', 'ride_duration', 'user_type']
+    columns_to_keep = ['datetime', 'year', 'month', 'day', 'hour', 'dayofweek', 'ride_duration', 'user_type', 'ended_at', 'start_station_name', 'end_station_name']
     if start_station_col:
         columns_to_keep.append(start_station_col)
     if end_station_col:

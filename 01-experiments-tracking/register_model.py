@@ -2,14 +2,14 @@ import os
 import pickle
 import click
 import mlflow
+import numpy as np
 from mlflow.entities import ViewType
 from mlflow.tracking import MlflowClient
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import SGDRegressor
 from sklearn.metrics import mean_squared_error
 
-HPO_EXPERIMENT_NAME = "random-forest-hyperopt-bike"
-EXPERIMENT_NAME = "random-forest-best-models-bike"
-RF_PARAMS = ['max_depth', 'n_estimators', 'min_samples_split', 'min_samples_leaf', 'random_state']
+HPO_EXPERIMENT_NAME = "sgd-hyperopt-bike"
+EXPERIMENT_NAME = "sgd-best-models-bike"
 
 mlflow.set_tracking_uri("http://127.0.0.1:5000")
 mlflow.set_experiment(EXPERIMENT_NAME)
@@ -24,17 +24,35 @@ def train_and_log_model(data_path, params):
     X_val, y_val = load_pickle(os.path.join(data_path, "val.pkl"))
     X_test, y_test = load_pickle(os.path.join(data_path, "test.pkl"))
 
-    with mlflow.start_run():
-        for param in RF_PARAMS:
-            params[param] = int(params[param])
+    # Convert to float32 to reduce memory usage
+    X_train = X_train.astype(np.float32)
+    X_val = X_val.astype(np.float32)
+    X_test = X_test.astype(np.float32)
 
-        rf = RandomForestRegressor(**params)
-        rf.fit(X_train, y_train)
+    with mlflow.start_run():
+        params['alpha'] = float(params['alpha'])
+        params['max_iter'] = int(params['max_iter'])
+        params['eta0'] = float(params['eta0'])
+
+        sgd = SGDRegressor(
+            penalty='l2',
+            learning_rate='invscaling',
+            random_state=42,
+            **params
+        )
+
+        # Implement batch processing
+        batch_size = 10000  # Adjust this based on your available memory
+        for _ in range(params['max_iter']):
+            for i in range(0, X_train.shape[0], batch_size):
+                X_batch = X_train[i:i+batch_size]
+                y_batch = y_train[i:i+batch_size]
+                sgd.partial_fit(X_batch, y_batch)
 
         # Evaluate model on the validation and test sets
-        val_rmse = mean_squared_error(y_val, rf.predict(X_val), squared=False)
+        val_rmse = mean_squared_error(y_val, sgd.predict(X_val), squared=False)
         mlflow.log_metric("val_rmse", val_rmse)
-        test_rmse = mean_squared_error(y_test, rf.predict(X_test), squared=False)
+        test_rmse = mean_squared_error(y_test, sgd.predict(X_test), squared=False)
         mlflow.log_metric("test_rmse", test_rmse)
 
 @click.command()
@@ -55,6 +73,12 @@ def run_register_model(data_path: str, top_n: int):
 
     # Retrieve the top_n model runs and log the models
     experiment = client.get_experiment_by_name(HPO_EXPERIMENT_NAME)
+    if experiment is None:
+        print(f"Error: Experiment '{HPO_EXPERIMENT_NAME}' not found.")
+        print("Please run the hyperparameter optimization script first.")
+        return
+
+    # Retrieve the top_n model runs and log the models
     runs = client.search_runs(
         experiment_ids=experiment.experiment_id,
         run_view_type=ViewType.ACTIVE_ONLY,
@@ -76,7 +100,7 @@ def run_register_model(data_path: str, top_n: int):
     # Register the best model
     run_id = best_run.info.run_id
     model_uri = f"runs:/{run_id}/model"
-    mlflow.register_model(model_uri, name="rf-best-model-bike")
+    mlflow.register_model(model_uri, name="sgd-best-model-bike")
 
 if __name__ == '__main__':
     run_register_model()
